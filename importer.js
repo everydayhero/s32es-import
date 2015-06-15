@@ -29,13 +29,15 @@ var ImporterPrototype = {
           if (err) {
             reject(err);
           } else {
-            var files = data.Contents.map(function(item) {
+            var files = data.Contents.filter(function(item) {
+              return item.Key !== marker;
+            }).map(function(item) {
               return [options.Bucket, item.Key].join("/");
             });
             importer.importFiles(files, to).then(function() {
               value.count += files.length;
               if (data.IsTruncated) {
-                marker = files[files.length - 1];
+                marker = data.Contents[data.Contents.length - 1].Key;
                 listObjects();
               } else {
                 resolve(value);
