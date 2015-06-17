@@ -118,9 +118,9 @@ var ImporterPrototype = {
       bulk.push(JSON.stringify(record));
     });
 
-    bulk.push("");
+    console.log("Bulk", bulk.length / 2, " entries into", indexKey, "of type", importer.typeKey, "to", bulkUrl);
 
-    console.log("Sending", bulk.length, "commands to", bulkUrl);
+    bulk.push("");
 
     return fetch(bulkUrl, {method: "POST", body: bulk.join("\n")}).then(function(res) {
       return res.json().then(function(json) {
