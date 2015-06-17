@@ -1,5 +1,5 @@
-var http = require("https");
 var URL = require("url");
+var fetch = require("node-fetch");
 var moment = require("moment");
 var Promise = require("es6-promise").Promise;
 
@@ -106,7 +106,7 @@ var ImporterPrototype = {
     var bulk = [];
 
     url.path = url.pathname = "/_bulk";
-    url.method = "POST";
+    var bulkUrl = URL.format(url);
 
     records.forEach(function(record) {
       var timestamp = moment(record["@timestamp"] || record.timestamp || record.time);
@@ -120,33 +120,12 @@ var ImporterPrototype = {
 
     bulk.push("");
 
-    return new Promise(function(resolve, reject) {
-      console.log("Sending", bulk.length, "commands to", URL.format({host: url.host, port: url.port, path: url.path, protocol: url.protocol}));
-      var req = http.request(url, function(res) {
-        var body = "";
+    console.log("Sending", bulk.length, "commands to", bulkUrl);
 
-        res.setEncoding("utf8");
-        res.on("data", function(chunk) {
-          body += chunk;
-        });
-        res.on("end", function() {
-          try {
-            var data = JSON.parse(body);
-
-            if (res.statusCode === 200) {
-              resolve(data);
-            } else {
-              reject(data);
-            }
-          } catch(ex) {
-            reject(ex);
-          }
-        });
+    return fetch(bulkUrl, {method: "POST", body: bulk.join("\n")}).then(function(res) {
+      return res.json().then(function(json) {
+        return Promise[res.ok ? "resolve" : "reject"](json);
       });
-
-      req.on("error", reject);
-      req.write(bulk.join("\n"));
-      req.end();
     });
   }
 };
