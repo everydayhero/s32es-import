@@ -14,9 +14,16 @@ if (!process.env.ELASTICSEARCH_URL) {
 
 if (process.env.S3_BUCKET) {
   importer.importFolder(process.env.S3_BUCKET, process.env.ELASTICSEARCH_URL).then(function(data) {
-    console.log("Imported", data.count, "files");
+    console.log(data);
   }, function(error) {
-    console.error(error);
+    if (typeof(error) === "object" && error.message) {
+      console.error(error.message);
+      if (error.stack) {
+        console.error(error.stack);
+      }
+    } else {
+      console.error(error);
+    }
     process.exit(1);
   });
 } else {

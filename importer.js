@@ -2,6 +2,7 @@ var URL = require("url");
 var fetch = require("node-fetch");
 var moment = require("moment");
 var Promise = require("es6-promise").Promise;
+var Queue = require("./queue");
 
 function parseOptions(path) {
   var parts = path.split("/");
@@ -18,63 +19,67 @@ var ImporterPrototype = {
   importFolder: function(from, to) {
     var importer = this;
     var options = parseOptions(from);
+    var marker = null;
 
     console.log("Importing folder", from);
-    return new Promise(function(resolve, reject) {
-      var marker = null;
-      var value = {count: 0};
 
-      function listObjects() {
-        importer.s3.listObjects({Bucket: options.Bucket, Prefix: options.Key, Marker: marker}, function(err, data) {
-          if (err) {
-            reject(err);
-          } else {
-            var files = data.Contents.filter(function(item) {
-              return item.Key !== marker;
-            }).map(function(item) {
-              return [options.Bucket, item.Key].join("/");
-            });
-            importer.importFiles(files, to).then(function() {
-              value.count += files.length;
-              if (data.IsTruncated) {
-                marker = data.Contents[data.Contents.length - 1].Key;
-                listObjects();
-              } else {
-                resolve(value);
-              }
-            }, reject);
-          }
-        });
+    return Queue.while(function(resolve, reject) {
+      if (marker === false) {
+        return false;
       }
 
-      listObjects();
+      importer.s3.listObjects({Bucket: options.Bucket, Prefix: options.Key, Marker: marker}, function(err, data) {
+        if (err) {
+          reject(err);
+        } else {
+          var contents = data.Contents || [];
+          var files = contents.filter(function(item) {
+            return item.Key !== marker;
+          }).map(function(item) {
+            return [options.Bucket, item.Key].join("/");
+          });
+
+          importer.importFiles(files, to).then(function(results) {
+            if (data.IsTruncated) {
+              marker = (contents[contents.length - 1] || {Key: false}).Key;
+            } else {
+              marker = false;
+            }
+
+            resolve(results);
+          }, reject);
+        }
+      });
+    }).then(function(results) {
+      var summary = {success: 0, failure: 0, total: 0};
+
+      results.forEach(function(result) {
+        summary.success += result.success;
+        summary.failure += result.failure;
+        summary.total += result.total;
+      });
+
+      return summary;
     });
   },
 
   importFiles: function(files, to) {
     var importer = this;
 
-    return new Promise(function(resolve, reject) {
-      var value = {count: 0};
+    console.log("Preparing to import", files.length, "files");
 
-      function processQueue() {
-        var queue = files.slice(0, importer.queueSize);
+    return Queue.batch(files, function(file) {
+      return importer.importFile(file, to);
+    }, importer.queueSize).then(function(results) {
+      var summary = {success: 0, failure: 0, total: 0};
 
-        value.count += queue.length;
-        files = files.slice(importer.queueSize);
+      results.forEach(function(result) {
+        summary.success += result.success;
+        summary.failure += result.failure;
+        summary.total += result.total;
+      });
 
-        if (queue.length) {
-          console.log("Processing", queue.length, "files");
-          queue = queue.map(function(file) {
-            return importer.importFile(file, to);
-          });
-          Promise.all(queue).then(processQueue, reject);
-        } else {
-          resolve(value);
-        }
-      }
-
-      processQueue();
+      return summary;
     });
   },
 
@@ -82,20 +87,23 @@ var ImporterPrototype = {
     var importer = this;
     var options = parseOptions(file);
 
-    console.log("Importing file", file);
+    console.log("Loading file", file);
+
     return new Promise(function(resolve, reject) {
       importer.s3.getObject(options, function(err, data) {
+        var body = data.Body || new Buffer(0);
+
+        console.log("Importing file", file);
+
         if (err) {
           reject(err);
         } else {
-          try {
-            var str = data.Body.toString("utf8");
-            resolve(importer.importRecords(JSON.parse(str), to));
-          } catch(ex) {
-            reject(ex);
-          }
+          var str = body.toString("utf8");
+          resolve(importer.importRecords(JSON.parse(str), to));
         }
       })
+    }).catch(function(error) {
+      return Promise.reject([file, error].join(": "));
     });
   },
 
@@ -118,7 +126,7 @@ var ImporterPrototype = {
       bulk.push(JSON.stringify(record));
     });
 
-    console.log("Bulk", bulk.length / 2, " entries into", indexKey, "of type", importer.typeKey, "to", bulkUrl);
+    console.log("Bulk importing", bulk.length / 2, " entries into", indexKey, "of type", importer.typeKey, "to", bulkUrl);
 
     bulk.push("");
 
@@ -126,6 +134,20 @@ var ImporterPrototype = {
       return res.json().then(function(json) {
         return Promise[res.ok ? "resolve" : "reject"](json);
       });
+    }).then(function(results) {
+      var summary = {success: 0, failure: 0, total: 0};
+      var items = results.items || [];
+
+      items.forEach(function(item) {
+        var success = item.create.status === 201;
+
+        summary.total += 1;
+        summary[success ? "success" : "failure"] += 1;
+      });
+
+      console.log(summary.success, "/", summary.total, "entries were inserted into", indexKey);
+
+      return summary;
     });
   }
 };
