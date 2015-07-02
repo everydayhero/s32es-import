@@ -12,6 +12,18 @@ function parseOptions(path) {
   };
 }
 
+function summarizeResults(results) {
+  var summary = {success: 0, failure: 0, total: 0};
+
+  results.forEach(function(result) {
+    summary.success += result.success;
+    summary.failure += result.failure;
+    summary.total += result.total;
+  });
+
+  return summary;
+}
+
 var ImporterPrototype = {
   queueSize: 10,
   typeKey: "fluentd",
@@ -50,17 +62,7 @@ var ImporterPrototype = {
           }, reject);
         }
       });
-    }).then(function(results) {
-      var summary = {success: 0, failure: 0, total: 0};
-
-      results.forEach(function(result) {
-        summary.success += result.success;
-        summary.failure += result.failure;
-        summary.total += result.total;
-      });
-
-      return summary;
-    });
+    }).then(summarizeResults);
   },
 
   importFiles: function(files, to) {
@@ -70,17 +72,7 @@ var ImporterPrototype = {
 
     return Queue.batch(files, function(file) {
       return importer.importFile(file, to);
-    }, importer.queueSize).then(function(results) {
-      var summary = {success: 0, failure: 0, total: 0};
-
-      results.forEach(function(result) {
-        summary.success += result.success;
-        summary.failure += result.failure;
-        summary.total += result.total;
-      });
-
-      return summary;
-    });
+    }, importer.queueSize).then(summarizeResults);
   },
 
   importFile: function(file, to) {
