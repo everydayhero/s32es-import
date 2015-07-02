@@ -33,8 +33,6 @@ var ImporterPrototype = {
     var options = parseOptions(from);
     var marker = null;
 
-    console.log("Importing folder", from);
-
     return Queue.while(function(resolve, reject) {
       if (marker === false) {
         return false;
@@ -68,8 +66,6 @@ var ImporterPrototype = {
   importFiles: function(files, to) {
     var importer = this;
 
-    console.log("Preparing to import", files.length, "files");
-
     return Queue.batch(files, function(file) {
       return importer.importFile(file, to);
     }, importer.queueSize).then(summarizeResults);
@@ -79,13 +75,9 @@ var ImporterPrototype = {
     var importer = this;
     var options = parseOptions(file);
 
-    console.log("Loading file", file);
-
     return new Promise(function(resolve, reject) {
       importer.s3.getObject(options, function(err, data) {
         var body = data.Body || new Buffer(0);
-
-        console.log("Importing file", file);
 
         if (err) {
           reject(err);
@@ -118,8 +110,6 @@ var ImporterPrototype = {
       bulk.push(JSON.stringify(record));
     });
 
-    console.log("Bulk importing", bulk.length / 2, " entries into", indexKey, "of type", importer.typeKey, "to", bulkUrl);
-
     bulk.push("");
 
     return fetch(bulkUrl, {method: "POST", body: bulk.join("\n")}).then(function(res) {
@@ -136,8 +126,6 @@ var ImporterPrototype = {
         summary.total += 1;
         summary[success ? "success" : "failure"] += 1;
       });
-
-      console.log(summary.success, "/", summary.total, "entries were inserted into", indexKey);
 
       return summary;
     });
