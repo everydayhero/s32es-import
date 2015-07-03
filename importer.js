@@ -13,21 +13,18 @@ function parseOptions(path) {
 }
 
 function summarizeResults(results) {
-  var summary = {success: 0, failure: 0, total: 0};
+  var summary = {};
 
   results.forEach(function(result) {
-    summary.success += result.success;
-    summary.failure += result.failure;
-    summary.total += result.total;
+    Object.keys(result).forEach(function(key) {
+      summary[key] = (summary[key] || 0) + result[key];
+    });
   });
 
   return summary;
 }
 
 var ImporterPrototype = {
-  queueSize: 10,
-  typeKey: "fluentd",
-
   importFolder: function(from, to) {
     var importer = this;
     var options = parseOptions(from);
@@ -56,6 +53,7 @@ var ImporterPrototype = {
               marker = false;
             }
 
+            results.pages = 1;
             resolve(results);
           }, reject);
         }
@@ -68,7 +66,11 @@ var ImporterPrototype = {
 
     return Queue.batch(files, function(file) {
       return importer.importFile(file, to);
-    }, importer.queueSize).then(summarizeResults);
+    }, importer.queueSize).then(summarizeResults).then(function(summary) {
+      summary.files = files.length;
+      importer.log("Imported", summary.success + "/" + summary.records, "from", summary.files, "files");
+      return summary;
+    });
   },
 
   importFile: function(file, to) {
@@ -123,22 +125,47 @@ var ImporterPrototype = {
       items.forEach(function(item) {
         var success = item.create.status === 201;
 
-        summary.total += 1;
+        summary.records += 1;
         summary[success ? "success" : "failure"] += 1;
       });
 
+      importer.log("Inserted " + summary.success + "/" + summary.records, "to", bulkUrl);
+
       return summary;
     });
+  },
+
+  log: function() {
+    if (this.debug) {
+      console.log.apply(console, arguments);
+    }
   }
 };
 
-module.exports = function(s3) {
-  return Object.create(ImporterPrototype, {
+module.exports = function(s3, options) {
+  var defaults = {
+    debug: false,
+    queueSize: 10,
+    typeKey: "fluentd"
+  };
+  var props = {
     s3: {
       value: s3,
       enumerable: false,
       writable: false,
       configurable: false
     }
+  };
+
+  options = options || {};
+  Object.keys(defaults).forEach(function(key) {
+    props[key] = {
+      value: options[key] || defaults[key],
+      enumerable: false,
+      writable: false,
+      configurable: false
+    };
   });
+
+  return Object.create(ImporterPrototype, props);
 };
