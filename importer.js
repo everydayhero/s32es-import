@@ -37,7 +37,7 @@ var ImporterPrototype = {
 
       importer.s3.listObjects({Bucket: options.Bucket, Prefix: options.Key, Marker: marker}, function(err, data) {
         if (err) {
-          reject(err);
+          reject([options.Bucket, err].join(": "));
         } else {
           var contents = data.Contents || [];
           var files = contents.filter(function(item) {
@@ -55,7 +55,9 @@ var ImporterPrototype = {
 
             results.pages = 1;
             resolve(results);
-          }, reject);
+          }, function(error) {
+            reject([options.Bucket, error].join(": "));
+          });
         }
       });
     }).then(summarizeResults);
